@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 import threading
 import json
+from typing_extensions import Self
 import uuid
 import hashlib
 from pathlib import Path
@@ -417,17 +418,35 @@ class InMemorySketchPad(SketchPadInterface):
 
 
 class SmartSketchPad:
-    """智能 SketchPad 门面类"""
+    """智能 SketchPad 门面类（单例模式）"""
+
+    _instance = None
+    _lock = threading.Lock()
+    
+    def __new__(cls, *args, **kwargs):
+        """单例模式实现"""
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super(SmartSketchPad, cls).__new__(cls)
+        return cls._instance
     
     def __init__(self, backend: Optional[SketchPadInterface] = None, 
                  llm_interface: Optional[OpenAICompatible] = None,
                  max_items: int = 500):
+        # 防止重复初始化
+        if hasattr(self, '_initialized'):
+            return
+            
         if backend is None:
             backend = InMemorySketchPad(
                 llm_interface=llm_interface,
                 max_items=max_items
             )
         self.backend = backend
+        
+        # 标记已初始化
+        self._initialized = True
     
     async def store(self, value: Any, key: Optional[str] = None, ttl: Optional[int] = None,
                    summary: Optional[str] = None, tags: Optional[Union[Set[str], List[str]]] = None,
@@ -563,4 +582,23 @@ def initialize_sketch_pad(llm_interface: Optional[OpenAICompatible] = None,
         llm_interface=llm_interface,
         max_items=max_items
     )
+    return _global_sketch_pad
+
+def ensure_global_sketch_pad(
+    llm_interface: Optional[OpenAICompatible] = None,
+    **kwargs
+) -> SmartSketchPad:
+    """
+    确保全局 SketchPad 存在，如果不存在则创建
+    
+    Args:
+        llm_interface: LLM接口
+        **kwargs: 其他初始化参数
+        
+    Returns:
+        SmartSketchPad: 全局 SketchPad 实例
+    """
+    global _global_sketch_pad
+    if _global_sketch_pad is None:
+        _global_sketch_pad = initialize_sketch_pad(llm_interface=llm_interface, **kwargs)
     return _global_sketch_pad

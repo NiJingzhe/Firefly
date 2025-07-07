@@ -10,8 +10,8 @@ from typing import (
     Sequence,
     AsyncGenerator,
 )
-from context.context import ConversationContext
-from context.sketch_pad import SmartSketchPad, InMemorySketchPad
+from context.context import ConversationContext, ensure_global_context
+from context.sketch_pad import SmartSketchPad, get_global_sketch_pad
 
 
 class BaseAgent(ABC):
@@ -41,20 +41,26 @@ class BaseAgent(ABC):
         # 子类需要定义自己的工具集
         self.toolkit = self.get_toolkit()
 
-        # 为每个Agent实例创建独立的上下文管理器
-        self.context = ConversationContext(
-            llm_interface=self.llm_interface,
-            max_history_length=max_history_length,
-            save_to_file=save_context,
-            context_file=context_file,
-        )
+        # 使用全局的ConversationContext实例，确保对话历史的持久性
+        # 如果指定了context_file，则使用ensure_global_context来确保使用正确的实例
+        if context_file:
+            self.context = ensure_global_context(
+                llm_interface=self.llm_interface,
+                max_history_length=max_history_length,
+                save_to_file=save_context,
+                context_file=context_file,
+            )
+        else:
+            # 使用默认的全局上下文
+            self.context = ensure_global_context(
+                llm_interface=self.llm_interface,
+                max_history_length=max_history_length,
+                save_to_file=save_context,
+            )
 
-        # 为每个Agent实例创建独立的SketchPad
-        backend = InMemorySketchPad(
-            llm_interface=self.llm_interface,
-            max_items=500
-        )
-        self.sketch_pad = SmartSketchPad(backend=backend)
+        # 使用全局的SketchPad实例，确保所有Agent共享同一个存储
+        # 这样可以在不同Agent会话之间保持数据的连续性
+        self.sketch_pad = get_global_sketch_pad()
 
         # 初始化chat函数
         self.chat = llm_chat(
