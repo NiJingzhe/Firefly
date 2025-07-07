@@ -196,27 +196,48 @@ class ConversationContext:
     async def _auto_memory_manage(self) -> None:
         """自动内存管理"""
         if len(self.history) > self.max_history_length and self.llm_interface:
+            # 计算分割点
+            summary_end_index = int(self.max_history_length * 2 / 3)  # 向下取整
+            
+            # 保留第一条消息（索引0）
+            first_message = self.history[0] if self.history else None
+            
+            # 获取需要摘要的消息（从索引1到summary_end_index）
+            messages_to_summarize = self.history[1:summary_end_index + 1]
+            
+            # 保留后1/3的消息
+            remaining_messages = self.history[summary_end_index + 1:]
+            
             # 创建摘要
-            summary = await self.summarize_history(self.history)
-            
-            # 保存摘要并清理历史
-            if self.conversation_summary:
-                self.conversation_summary = f"{self.conversation_summary}\n\n{summary}"
-            else:
-                self.conversation_summary = summary
-            
-            # 保留最近的一条消息作为上下文连接
-            last_message = self.history[-1] if self.history else None
-            self.history = []
-            
-            if last_message:
-                # 添加摘要消息
-                self.history.append({
+            if messages_to_summarize:
+                summary = await self.summarize_history(messages_to_summarize)
+                
+                # 创建摘要消息
+                summary_message = {
                     "role": "assistant",
                     "content": f"During the conversation happened just a moment ago, {summary}.\nNow you are supposed to continue to assist the user to achieve their target.",
                     "timestamp": datetime.now().isoformat(),
                     "metadata": {"type": "summary"}
-                })
+                }
+                
+                # 重新组织历史记录
+                self.history = []
+                
+                # 添加第一条消息（如果存在）
+                if first_message:
+                    self.history.append(first_message)
+                
+                # 添加摘要消息到索引1
+                self.history.append(summary_message)
+                
+                # 添加剩余的消息（从索引2开始）
+                self.history.extend(remaining_messages)
+                
+                # 更新全局摘要
+                if self.conversation_summary:
+                    self.conversation_summary = f"{self.conversation_summary}\n\n{summary}"
+                else:
+                    self.conversation_summary = summary
     
     def _save_context(self) -> None:
         """保存上下文到文件（追加模式保存历史记录）"""

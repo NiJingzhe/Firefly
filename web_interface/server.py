@@ -1,9 +1,9 @@
 """
 FastAPI Web Server for SimpleAgent
 符合OpenAI API规范的Web服务器实现
+支持多Agent架构，通过model name选择不同的Agent
 """
 
-import asyncio
 import json
 import time
 import uuid
@@ -15,8 +15,17 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from agent import initialize_global_agent, get_global_agent
-from agent.BaseAgent import BaseAgent
+from agent import (
+    SimpleAgent,
+    get_agent_registry,
+    register_agent,
+    list_available_models
+)
+from tools import (
+    execute_command,
+    file_operations,
+    sketch_pad_operations,
+)
 
 from .models import (
     ChatCompletionRequest,
@@ -36,26 +45,43 @@ from .models import (
 )
 
 
-# 全局智能体实例
-agent: Optional[BaseAgent] = None
+# 全局Agent注册器
+agent_registry = None
+
+
+def initialize_default_agents():
+    """初始化默认的Agent"""
+    global agent_registry
+    agent_registry = get_agent_registry()
+    
+    # 创建默认工具集
+    toolkit = [
+        execute_command,
+        file_operations,
+        sketch_pad_operations,
+    ]
+    
+    # 注册SimpleAgent
+    register_agent("simple-agent-v1", SimpleAgent)
+    
+    # 创建默认Agent实例
+    agent_registry.get_or_create_agent(
+        "simple-agent-v1",
+        name="SimpleAgent Web Service",
+        description="Professional CAD modeling assistant with web API",
+        toolkit=toolkit,
+        context_file="history/conversation_history.json",
+        max_history_length=20
+    )
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
-    global agent
-    
     # 启动时初始化智能体
     print("🚀 Initializing SimpleAgent Web Server...")
     try:
-        # 使用全局Agent单例
-        agent = initialize_global_agent(
-            name="SimpleAgent Web Service",
-            description="Professional CAD modeling assistant with web API",
-            context_file="history/conversation_history.json",
-            max_history_length=20
-        )
-        
+        initialize_default_agents()
         print("✅ SimpleAgent initialized successfully!")
         
     except Exception as e:
@@ -112,10 +138,24 @@ def create_error_response(message: str, error_type: str = "invalid_request",
 
 async def stream_chat_completion(request: ChatCompletionRequest, request_id: str) -> AsyncGenerator[str, None]:
     """流式聊天完成生成器"""
-    global agent
+    global agent_registry
     
+    if not agent_registry:
+        raise HTTPException(status_code=500, detail="Agent registry not initialized")
+    
+    # 根据模型名称获取Agent
+    agent = agent_registry.get_agent(request.model)
     if not agent:
-        raise HTTPException(status_code=500, detail="Agent not initialized")
+        # 如果指定的模型不存在，尝试创建
+        try:
+            agent = agent_registry.get_or_create_agent(
+                request.model,
+                name=f"Agent for {request.model}",
+                description=f"Agent instance for model {request.model}",
+                toolkit=[execute_command, file_operations, sketch_pad_operations],
+            )
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Unknown model: {request.model}")
     
     # 获取用户最后一条消息
     user_messages = [msg for msg in request.messages if msg.role == "user"]
@@ -148,6 +188,7 @@ async def stream_chat_completion(request: ChatCompletionRequest, request_id: str
     # 流式处理智能体响应
     content_buffer = ""
     try:
+        # 直接迭代AsyncGenerator
         async for chunk in agent.run(query):
             if chunk.strip():
                 content_buffer += chunk
@@ -235,30 +276,38 @@ async def root():
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """健康检查端点"""
-    global agent
+    global agent_registry
+    
+    # 获取默认Agent
+    default_agent = agent_registry.get_agent("simple-agent-v1") if agent_registry else None
     
     return HealthResponse(
         status="ok",
         timestamp=datetime.now().isoformat(),
         version="1.0.0",
-        agent_name=agent.name if agent else "Not initialized"
+        agent_name=default_agent.name if default_agent else "Not initialized"
     )
 
 
 @app.get("/v1/models", response_model=ModelListResponse)
 async def list_models():
     """列出可用模型"""
-    models = [
-        ModelInfo(
-            id="simple-agent-v1",
+    global agent_registry
+    
+    # 获取所有已注册的模型
+    available_models = list_available_models()
+    
+    models = []
+    for model_name in available_models:
+        models.append(ModelInfo(
+            id=model_name,
             object="model",
             created=int(time.time()),
             owned_by="simple-agent",
             permission=None,
-            root="simple-agent-v1",
+            root=model_name,
             parent=None
-        )
-    ]
+        ))
     
     return ModelListResponse(object="list", data=models)
 
@@ -266,14 +315,32 @@ async def list_models():
 @app.post("/v1/chat/completions")
 async def chat_completions(request: ChatCompletionRequest):
     """聊天完成端点（符合OpenAI规范）"""
-    global agent
+    global agent_registry
     
-    if not agent:
+    if not agent_registry:
         return create_error_response(
-            message="Agent not initialized",
+            message="Agent registry not initialized",
             error_type="server_error",
             status_code=500
         )
+    
+    # 根据模型名称获取Agent
+    agent = agent_registry.get_agent(request.model)
+    if not agent:
+        # 如果指定的模型不存在，尝试创建
+        try:
+            agent = agent_registry.get_or_create_agent(
+                request.model,
+                name=f"Agent for {request.model}",
+                description=f"Agent instance for model {request.model}",
+                toolkit=[execute_command, file_operations, sketch_pad_operations],
+            )
+        except Exception as e:
+            return create_error_response(
+                message=f"Unknown model: {request.model}",
+                error_type="invalid_request",
+                param="model"
+            )
     
     # 验证请求
     if not request.messages:
@@ -360,10 +427,10 @@ async def chat_completions(request: ChatCompletionRequest):
 async def websocket_chat_completions(websocket: WebSocket):
     """通过WebSocket提供流式聊天完成"""
     await websocket.accept()
-    global agent
+    global agent_registry
 
-    if not agent:
-        await websocket.close(code=1011, reason="Agent not initialized")
+    if not agent_registry:
+        await websocket.close(code=1011, reason="Agent registry not initialized")
         return
 
     try:
