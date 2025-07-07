@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from SimpleLLMFunc import llm_chat, OpenAICompatible, Tool
 from typing import (
     Dict,
@@ -9,41 +10,53 @@ from typing import (
     Sequence,
     AsyncGenerator,
 )
-from context.context import ensure_global_context
-from context.sketch_pad import get_global_sketch_pad
+from context.context import ConversationContext
+from context.sketch_pad import SmartSketchPad, InMemorySketchPad
 
 
-class BaseAgent:
+class BaseAgent(ABC):
+    """
+    Agent基类，定义了Agent的基本接口和通用功能
+    
+    所有具体的Agent实现都应该继承此类并实现抽象方法
+    """
 
     def __init__(
         self,
         name: str,
         description: str,
-        toolkit: Optional[Sequence[Tool | Callable]] = None,
         llm_interface: Optional[OpenAICompatible] = None,
         max_history_length: int = 5,
         save_context: bool = True,
         context_file: Optional[str] = None,
+        **kwargs  # 额外的参数，子类可以处理
     ):
         self.name = name
         self.description = description
-        self.toolkit = toolkit if toolkit is not None else []
         self.llm_interface = llm_interface
 
         if not self.llm_interface:
             raise ValueError("llm_interface must be provided")
 
-        # 使用全局单例的上下文管理器
-        self.context = ensure_global_context(
+        # 子类需要定义自己的工具集
+        self.toolkit = self.get_toolkit()
+
+        # 为每个Agent实例创建独立的上下文管理器
+        self.context = ConversationContext(
             llm_interface=self.llm_interface,
             max_history_length=max_history_length,
             save_to_file=save_context,
             context_file=context_file,
         )
 
-        # 使用全局 SketchPad
-        self.sketch_pad = get_global_sketch_pad()
+        # 为每个Agent实例创建独立的SketchPad
+        backend = InMemorySketchPad(
+            llm_interface=self.llm_interface,
+            max_items=500
+        )
+        self.sketch_pad = SmartSketchPad(backend=backend)
 
+        # 初始化chat函数
         self.chat = llm_chat(
             llm_interface=self.llm_interface,
             toolkit=self.toolkit,  # type: ignore[call-arg]
@@ -52,166 +65,56 @@ class BaseAgent:
             timeout=600,
         )(self.chat_impl)
 
-        # 移除原来的历史总结功能，现在由ConversationContext处理
-        # self.history: List[Dict[str, str]] = []
+    @abstractmethod
+    def get_toolkit(self) -> List[Callable]:
+        """
+        获取Agent专用的工具集（抽象方法）
+        
+        子类必须实现此方法来定义自己的工具集
+        
+        Returns:
+            工具函数列表
+        """
+        pass
 
-    @staticmethod
+    @abstractmethod
     def chat_impl(
-        history: List[Dict[str, str]], query: str, time: str, sketch_pad_summary: str
-    ) -> Generator[Tuple[str, List[Dict[str, str]]], None, None]:  # type: ignore[override]
+        self, 
+        history: List[Dict[str, str]], 
+        query: str, 
+        time: str, 
+        sketch_pad_summary: str
+    ) -> Generator[Tuple[str, List[Dict[str, str]]], None, None]:
         """
-        # 🧠 身份说明
-        你是一个**通用智能助手（Universal AI Assistant）**，具备强大的任务规划、执行和管理能力。
-        你能够处理各种类型的任务，从简单的信息查询到复杂的多步骤项目规划。
-        你具备上下文记忆能力、任务分解能力以及动态调整策略的能力。
-
-        你以自然、友好的方式与用户交流，目标是**高效、准确、有条理地**帮助用户完成各种任务。
-
-        ---
-
-        # 🚦 任务处理策略
-
-        根据任务复杂度，采取分层处理策略：
-
-        ## 🎯 简单任务模式
-        **特征**：单步骤即可完成，不需要复杂规划
-        **处理方式**：直接执行，立即给出结果
-        **示例**：
-        - 回答知识性问题
-        - 简单计算
-        - 单一工具调用
-        - 基础信息查询
-
-        ## � 中等任务模式
-        **特征**：需要2-5个步骤，有明确的执行顺序
-        **处理方式**：
-        1. 将任务分解为具体步骤
-        2. 在sketch_pad中创建Markdown格式的checklist
-        3. 逐步执行，每完成一步就更新checklist状态
-        4. 确保每个步骤都有明确的完成标准
-
-        **Checklist格式示例**：
-        ```markdown
-        # 任务：[任务名称]
+        Agent的对话实现逻辑（抽象方法）
         
-        ## 执行计划
-        - [ ] 步骤1：具体描述
-        - [ ] 步骤2：具体描述
-        - [ ] 步骤3：具体描述
+        子类必须实现此方法来定义具体的对话行为
         
-        ## 执行状态
-        - 当前步骤：步骤1
-        - 开始时间：[时间]
-        - 预计完成时间：[时间]
-        ```
-
-        ## 🔀 复杂任务模式
-        **特征**：需要多个子目标，涉及不确定性和动态调整
-        **处理方式**：
-        1. 将复杂任务分解为多个中等或简单子任务
-        2. 为每个子任务创建独立的checklist
-        3. 建立主任务的总体规划checklist
-        4. 根据执行结果动态调整后续计划
-        5. 处理子任务间的依赖关系
-
-        **复杂任务Checklist格式示例**：
-        ```markdown
-        # 主任务：[任务名称]
-        
-        ## 总体规划
-        - [ ] 子任务1：[名称] (简单/中等)
-        - [ ] 子任务2：[名称] (简单/中等)
-        - [ ] 子任务3：[名称] (简单/中等)
-        
-        ## 当前执行状态
-        - 活跃子任务：[子任务名称]
-        - 已完成：0/3
-        - 需要调整：否
-        
-        ## 依赖关系
-        - 子任务2 依赖于 子任务1
-        - 子任务3 依赖于 子任务1, 子任务2
-        ```
-
-        ---
-
-        # 🔧 工具说明
-
-        你具备以下核心能力（以工具形式封装），可按需调用：
-
-        ## sketch_pad_operations
-        🧠 任务管理和记忆系统，用于存储和管理任务规划、执行状态、中间结果等。
-
-        支持操作：`store`、`retrieve`、`search`、`delete`、`stats`
-
-        **核心用途**：
-        - 存储任务checklist和执行状态
-        - 保存中间结果和临时数据
-        - 维护任务依赖关系
-        - 记录执行历史和经验
-
-        ---
-
-        # 🔄 智能工作流程
-
-        ## 📊 任务复杂度判断标准
-        **简单任务**：
-        - 单一明确目标
-        - 不需要多步骤规划
-        - 可以立即执行完成
-        
-        **中等任务**：
-        - 需要2-5个明确步骤
-        - 步骤间有一定依赖关系
-        - 总执行时间在合理范围内
-        
-        **复杂任务**：
-        - 包含多个子目标
-        - 需要动态调整策略
-        - 涉及不确定因素
-        - 可能需要长时间执行
-
-        ## 📋 标准执行流程
-
-        ### 对于中等任务：
-        1. **任务分析**：确定所需步骤和依赖关系
-        2. **创建checklist**：在sketch_pad中存储Markdown格式的任务列表
-        3. **逐步执行**：按顺序执行每个步骤
-        4. **状态更新**：每完成一步立即更新checklist
-        5. **结果确认**：确保每步都达到预期效果
-
-        ### 对于复杂任务：
-        1. **任务分解**：将复杂任务拆分为子任务
-        2. **规划架构**：创建主任务和子任务的checklist体系
-        3. **依赖分析**：识别和记录任务间依赖关系
-        4. **动态执行**：根据执行结果调整后续计划
-        5. **持续监控**：跟踪整体进度和局部调整
-
-        ---
-
-        # 🎨 用户体验原则
-
-        - **透明度**：始终让用户了解当前执行状态和下一步计划
-        - **灵活性**：根据实际情况动态调整任务规划
-        - **可追溯**：保持完整的执行记录和决策过程
-        - **高效性**：避免不必要的复杂化，能简单解决就不复杂化
-        - **交互友好**：使用自然语言与用户沟通，避免专业术语堆砌
-        - **容错性**：提供错误恢复机制，允许用户修正或重新规划
-
-        ---
-
-        # ⚠️ 执行要点
-
-        - **工具调用前说明**：使用工具前告知用户 "🔧 我将使用工具：<tool name> 来 [具体用途]"
-        - **错误处理**：执行失败时分析原因并尝试修复或调整策略
-        - **状态同步**：确保sketch_pad中的checklist始终反映最新状态
-        - **结果验证**：每个步骤完成后验证是否达到预期目标
-        - **用户反馈**：在关键节点征询用户意见和确认
-        - **进度报告**：定期向用户汇报任务执行进展
-        - **资源管理**：合理利用可用工具和资源，避免重复劳动
-
+        Args:
+            history: 对话历史
+            query: 用户查询
+            time: 当前时间
+            sketch_pad_summary: SketchPad摘要
+            
+        Returns:
+            Generator yielding (response_chunk, updated_history)
         """
+        pass
 
+    @abstractmethod
+    def run(self, query: str) -> AsyncGenerator[str, None]:
+        """
+        运行Agent处理用户查询（抽象方法）
+        
+        Args:
+            query: 用户查询
+            
+        Returns:
+            AsyncGenerator yielding response chunks
+        """
+        pass
+
+    # 通用辅助方法
     def _get_sketch_pad_summary(self) -> str:
         """获取SketchPad的摘要信息，包括所有keys和截断的values"""
         try:
@@ -256,41 +159,6 @@ class BaseAgent:
 
         except Exception as e:
             return f"获取SketchPad摘要时出错: {str(e)}"
-
-    async def run(self, query: str) -> AsyncGenerator[str, None]:
-        """Run the agent with the given query.
-
-        Args:
-            query (str): The query to process.
-
-        Returns:
-            Generator[str, None, None]: The response chunks from the agent.
-        """
-        if not query:
-            raise ValueError("Query must not be empty")
-
-        # 获得时间字符串
-        import time
-
-        current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-
-        # 获得SketchPad的key和截断的value内容
-        sketch_pad_summary = self._get_sketch_pad_summary()
-
-        # 获取格式化的历史记录用于LLM调用
-        history = self.context.get_formatted_history()
-
-        response = self.chat(history, query, current_time, sketch_pad_summary)
-
-        # 处理响应流并获取最终的历史记录
-        final_history = history
-
-        for response_str, updated_history in response:
-            final_history = updated_history
-            yield response_str
-
-        # 同步chat函数更新后的历史记录到context
-        await self.context.sync_with_external_history(final_history)
 
     # 上下文管理的便捷方法
     def get_conversation_history(self, limit: Optional[int] = None):

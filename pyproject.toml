@@ -5,10 +5,13 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "simplellmfunc==0.2.8",
+    "simplellmfunc==0.2.10",
     "fastapi>=0.115.14",
     "uvicorn>=0.34.3",
     "pydantic>=2.5.0",
     "websocket>=0.2.1",
     "websockets>=15.0.1",
+    "pyautogui>=0.9.54",
+    "pillow>=11.3.0",
+    "pyperclip>=1.9.0",
 ]
