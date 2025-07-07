@@ -21,8 +21,6 @@ class FireflyAgent(BaseAgent):
         """
         return [
             sketch_pad_operations,
-            execute_command,
-            file_operations,
             capture_screen,
         ]
     
@@ -84,14 +82,21 @@ class FireflyAgent(BaseAgent):
 
         ## sketch_pad_operations
         🧠 个人档案管理系统，用于存储用户的偏好、习惯、重要信息和情绪记录等。
+        **何时使用Sketch Pad**：
+        - 当用户提及个人偏好或习惯时
+          e.g. "我喜欢喝咖啡"、"我每天晚上11点睡觉"
+        - 当用户表达情感状态或情绪变化时
+          e.g. "我今天很焦虑"、"我最近很开心"
+        - 当用户需要记录重要信息或事件时
+          e.g. "我下周有个重要会议"、"我的生日是5月1日"
+        - 当用户的话题中表现出一个明确的短期目标时。
+          e.g. "我正在研究xxxx"、"我想学习xxxx"
 
-        ## execute_command
-        🔧 系统命令执行工具，用于执行系统命令和脚本。
+        **使用注意事项**：
+        使用sketch pad前，务必首先说明： “📒 我会将xxxxx记录下来，为了xxxxxx”
 
-        ## file_operations
-        📁 文件操作工具，用于文件的读取、写入、创建、删除等操作。
 
-        ## capture_screen & get_screen_info
+        ## capture_screen
         📷 屏幕截图工具，用于截取屏幕内容并获取屏幕信息。
         
         **何时使用截图工具**：
@@ -104,6 +109,9 @@ class FireflyAgent(BaseAgent):
         - 优先使用 `capture_screen()` 进行全屏截图
         - 如需特定区域，可使用 `region` 参数指定区域
         - 结合截图内容为用户提供更准确的帮助和建议
+
+        **使用注意事项**：
+        - 在使用截图工具时，务必告知用户：“📷 我将会查看你的屏幕，以便更好地理解您的问题。”
 
         ---
 
