@@ -12,9 +12,11 @@ class Config:
     JSON_FILE = current_file_dir + "/provider.json"
     INTERFACE_COLLECTION = OpenAICompatible.load_from_json_file(JSON_FILE)
 
-    BASIC_INTERFACE = INTERFACE_COLLECTION["chatanywhere"]["gpt-4o"]
+    #BASIC_INTERFACE = INTERFACE_COLLECTION["chatanywhere"]["claude-3-7-sonnet-20250219"]
     #BASIC_INTERFACE = INTERFACE_COLLECTION["chatanywhere"]["gemini-2.5-pro-preview-06-05"]
     #BASIC_INTERFACE = INTERFACE_COLLECTION["chatanywhere"]["gemini-2.5-flash"]
+    #BASIC_INTERFACE = INTERFACE_COLLECTION["chatanywhere"]["deepseek-v3"]
+    BASIC_INTERFACE = INTERFACE_COLLECTION["chatanywhere"]["gpt-4o"]
 
     CODE_INTERFACE = INTERFACE_COLLECTION["chatanywhere"]["claude-sonnet-4-20250514"]
 

@@ -10,8 +10,10 @@ from typing import (
     Sequence,
     AsyncGenerator,
 )
+import threading
 from context.context import ConversationContext, ensure_global_context
 from context.sketch_pad import SmartSketchPad, get_global_sketch_pad
+import threading
 
 
 class BaseAgent(ABC):
@@ -20,6 +22,67 @@ class BaseAgent(ABC):
     
     所有具体的Agent实现都应该继承此类并实现抽象方法
     """
+    
+    # 类级别的实例缓存，确保每个Agent子类的单例
+    _class_instances: Dict[str, 'BaseAgent'] = {}
+    _class_lock = threading.Lock()
+
+    @classmethod
+    def get_instance(
+        cls, 
+        model_name: str,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        llm_interface: Optional[OpenAICompatible] = None,
+        **kwargs
+    ) -> 'BaseAgent':
+        """
+        获取Agent实例的类方法（单例模式）
+        
+        Args:
+            model_name: 模型名称
+            name: Agent名称
+            description: Agent描述  
+            llm_interface: LLM接口
+            **kwargs: 其他参数
+            
+        Returns:
+            Agent实例
+        """
+        with cls._class_lock:
+            # 使用类名和model_name作为唯一标识
+            instance_key = f"{cls.__name__}:{model_name}"
+            
+            if instance_key not in cls._class_instances:
+                if not llm_interface:
+                    # 如果没有提供llm_interface，尝试从配置获取
+                    from config.config import get_config
+                    config = get_config()
+                    llm_interface = config.BASIC_INTERFACE
+                
+                instance_name = name or f"{model_name}-agent"
+                instance_description = description or f"Agent instance for {model_name}"
+                
+                cls._class_instances[instance_key] = cls(
+                    name=instance_name,
+                    description=instance_description,
+                    llm_interface=llm_interface,
+                    model_name=model_name,
+                    **kwargs
+                )
+            
+            return cls._class_instances[instance_key]
+    
+    @classmethod
+    def clear_instances(cls):
+        """清空所有实例缓存"""
+        with cls._class_lock:
+            cls._class_instances.clear()
+    
+    @classmethod
+    def get_all_instances(cls) -> Dict[str, 'BaseAgent']:
+        """获取所有实例"""
+        return cls._class_instances.copy()
 
     def __init__(
         self,
@@ -29,10 +92,12 @@ class BaseAgent(ABC):
         max_history_length: int = 5,
         save_context: bool = True,
         context_file: Optional[str] = None,
+        model_name: Optional[str] = None,  # 添加model_name参数
         **kwargs  # 额外的参数，子类可以处理
     ):
         self.name = name
         self.description = description
+        self.model_name = model_name  # 存储model_name
         self.llm_interface = llm_interface
 
         if not self.llm_interface:
@@ -234,6 +299,8 @@ class BaseAgent(ABC):
         """获取会话信息（包括对话历史和 SketchPad 统计）"""
         return {
             "agent_name": self.name,
+            "model_name": self.model_name,
+            "agent_class": self.__class__.__name__,
             "conversation_count": len(self.get_conversation_history()),
             "sketch_pad_stats": self.get_sketch_pad_stats(),
             "conversation_summary": self.get_conversation_summary(),

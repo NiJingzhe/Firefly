@@ -119,6 +119,41 @@ def estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
+def get_agent_for_model(model_name: str, agent_registry):
+    """
+    根据模型名称获取Agent实例（确保单例）
+    
+    Args:
+        model_name: 模型名称
+        agent_registry: Agent注册器实例
+        
+    Returns:
+        Agent实例
+        
+    Raises:
+        HTTPException: 如果模型不存在或创建失败
+    """
+    if not agent_registry:
+        raise HTTPException(status_code=500, detail="Agent registry not initialized")
+    
+    # 首先尝试获取已存在的Agent实例
+    agent = agent_registry.get_agent(model_name)
+    if agent:
+        return agent
+    
+    # 如果不存在，尝试创建新的Agent实例
+    try:
+        agent = agent_registry.get_or_create_agent(
+            model_name,
+            name=f"Agent for {model_name}",
+            description=f"Agent instance for model {model_name}",
+            toolkit=[execute_command, file_operations, sketch_pad_operations],
+        )
+        return agent
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Unknown model: {model_name}")
+
+
 def create_error_response(message: str, error_type: str = "invalid_request", 
                          param: Optional[str] = None, code: Optional[str] = None,
                          status_code: int = 400) -> JSONResponse:
@@ -140,22 +175,8 @@ async def stream_chat_completion(request: ChatCompletionRequest, request_id: str
     """流式聊天完成生成器"""
     global agent_registry
     
-    if not agent_registry:
-        raise HTTPException(status_code=500, detail="Agent registry not initialized")
-    
-    # 根据模型名称获取Agent
-    agent = agent_registry.get_agent(request.model)
-    if not agent:
-        # 如果指定的模型不存在，尝试创建
-        try:
-            agent = agent_registry.get_or_create_agent(
-                request.model,
-                name=f"Agent for {request.model}",
-                description=f"Agent instance for model {request.model}",
-                toolkit=[execute_command, file_operations, sketch_pad_operations],
-            )
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Unknown model: {request.model}")
+    # 使用统一的Agent获取逻辑
+    agent = get_agent_for_model(request.model, agent_registry)
     
     # 获取用户最后一条消息
     user_messages = [msg for msg in request.messages if msg.role == "user"]
@@ -289,6 +310,29 @@ async def health_check():
     )
 
 
+@app.get("/v1/agents", response_model=Dict[str, Any])
+async def list_agents():
+    """列出所有活跃的Agent实例（用于调试和监控）"""
+    global agent_registry
+    
+    if not agent_registry:
+        return {"error": "Agent registry not initialized"}
+    
+    agents_info = {}
+    for model_name in agent_registry.list_agents():
+        agent_info = agent_registry.get_agent_info(model_name)
+        if agent_info:
+            # 添加实例ID用于验证单例
+            agent = agent_registry.get_agent(model_name)
+            agent_info["instance_id"] = id(agent) if agent else None
+            agents_info[model_name] = agent_info
+    
+    return {
+        "registry_stats": agent_registry.get_agent_stats(),
+        "agents": agents_info
+    }
+
+
 @app.get("/v1/models", response_model=ModelListResponse)
 async def list_models():
     """列出可用模型"""
@@ -324,23 +368,16 @@ async def chat_completions(request: ChatCompletionRequest):
             status_code=500
         )
     
-    # 根据模型名称获取Agent
-    agent = agent_registry.get_agent(request.model)
-    if not agent:
-        # 如果指定的模型不存在，尝试创建
-        try:
-            agent = agent_registry.get_or_create_agent(
-                request.model,
-                name=f"Agent for {request.model}",
-                description=f"Agent instance for model {request.model}",
-                toolkit=[execute_command, file_operations, sketch_pad_operations],
-            )
-        except Exception as e:
-            return create_error_response(
-                message=f"Unknown model: {request.model}",
-                error_type="invalid_request",
-                param="model"
-            )
+    # 使用统一的Agent获取逻辑
+    try:
+        agent = get_agent_for_model(request.model, agent_registry)
+    except HTTPException as e:
+        return create_error_response(
+            message=e.detail,
+            error_type="invalid_request" if e.status_code == 400 else "server_error",
+            param="model" if e.status_code == 400 else None,
+            status_code=e.status_code
+        )
     
     # 验证请求
     if not request.messages:
