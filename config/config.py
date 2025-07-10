@@ -23,6 +23,9 @@ class Config:
     REASONING_INTERFACE = INTERFACE_COLLECTION["chatanywhere"]["deepseek-v3"]
 
     QUICK_INTERFACE = INTERFACE_COLLECTION["chatanywhere"]["gemini-2.5-flash"]
+    
+    PPOCR_DET_MODEL_DIR = current_file_dir + "/../models/PP-OCRv5_mobile_det_infer"
+    PPOCR_REC_MODEL_DIR = current_file_dir + "/../models/PP-OCRv5_mobile_rec_infer"
 
 
 @lru_cache()

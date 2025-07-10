@@ -23,3 +23,5 @@ log*/
 **/provider.json
 
 context/conversation_history.json
+
+models/

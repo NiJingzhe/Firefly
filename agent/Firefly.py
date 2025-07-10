@@ -128,6 +128,8 @@ class FireflyAgent(BaseAgent):
 
         **当前时间**: {time}
         **SketchPad状态**: {sketch_pad_summary}
+        
+        务必需要注意的一点是：以最口语化的方法和用户交流，要像说话一样自然流畅，简洁。
         """
         # 实际的返回值会由装饰器处理
         return
@@ -160,6 +162,9 @@ class FireflyAgent(BaseAgent):
 
         # 处理响应流并获取最终的历史记录
         final_history = history
+        if query.startswith("用户最近的情绪数据分析"):
+            # 排除掉这一条历史，但是保留回复
+            final_history = history[:-3] + [history[-1]]
 
         for response_str, updated_history in response:
             final_history = updated_history
