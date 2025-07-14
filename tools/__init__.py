@@ -20,14 +20,25 @@ from .sketch_tools import (
     sketch_pad_operations,
 )
 
+from .screen_capture import capture_screen
 
+from .device_operation import (
+    get_device_list,
+    get_device_value,
+    set_device_value,
+)
 
 # 为了保持向后兼容性，导出所有工具函数
 __all__ = [
-    'execute_command',
-    'file_operations',
-    'sketch_pad_operations',
-    'print_tool_output',
-    'global_context',
-    'get_global_sketch_pad',
+    "execute_command",
+    "file_operations",
+    "sketch_pad_operations",
+    "print_tool_output",
+    "global_context",
+    "get_global_sketch_pad",
+    "capture_screen",
+    "get_device_list",
+    "get_device_value",
+    "set_device_value",
 ]
+

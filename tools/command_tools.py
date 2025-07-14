@@ -51,12 +51,13 @@ def execute_command(command: str, store_result: bool = True) -> str:
             # 自动存储到SketchPad
             if store_result:
                 import uuid
+
                 sketch_pad = get_global_sketch_pad()
 
                 async def _store_execution():
                     # 生成自定义key
                     exec_key = f"exec_{uuid.uuid4().hex[:8]}"
-                    
+
                     # 存储执行记录
                     record_key = await sketch_pad.store(
                         value=str(execution_record),
@@ -122,6 +123,7 @@ def execute_command(command: str, store_result: bool = True) -> str:
             # 存储失败记录
             if store_result:
                 import uuid
+
                 sketch_pad = get_global_sketch_pad()
 
                 async def _store_error():
@@ -162,6 +164,7 @@ def execute_command(command: str, store_result: bool = True) -> str:
         if store_result:
             try:
                 import uuid
+
                 sketch_pad = get_global_sketch_pad()
 
                 async def _store_exception():

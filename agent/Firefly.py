@@ -1,7 +1,12 @@
 from typing import Dict, List, Generator, Tuple, AsyncGenerator, Callable, override
 from .BaseAgent import BaseAgent
-from tools import execute_command, file_operations, sketch_pad_operations
-from tools.screen_capture import capture_screen
+from tools import (
+    sketch_pad_operations,
+    capture_screen,
+    get_device_list,
+    get_device_value,
+    set_device_value,
+)
 import time
 
 
@@ -11,31 +16,35 @@ class FireflyAgent(BaseAgent):
 
     继承自BaseAgent并实现了具体的对话逻辑和工具集
     """
-    @override 
+
+    @override
     def get_toolkit(self) -> List[Callable]:
         """
         定义 Firefly 的专用工具集
-        
+
         Returns:
             Firefly 的工具函数列表
         """
         return [
             sketch_pad_operations,
             capture_screen,
+            get_device_list,
+            get_device_value,
+            set_device_value,
         ]
-    
+
     @override
     def chat_impl(
-        self, 
-        history: List[Dict[str, str]], 
-        query: str, 
-        time: str, 
-        sketch_pad_summary: str
+        self,
+        history: List[Dict[str, str]],
+        query: str,
+        time: str,
+        sketch_pad_summary: str,
     ) -> Generator[Tuple[str, List[Dict[str, str]]], None, None]:
         """
         # 🧠 身份说明
         你是**萤火**，一个主动的情感陪伴助手。
-        
+
         你的核心能力包括：
         - 💬 **回答用户的问题** - 提供准确、有用的信息和建议
         - 🤗 **情感陪伴** - 在用户焦躁时给出安慰，在用户疲劳时给出休息提示
@@ -60,7 +69,7 @@ class FireflyAgent(BaseAgent):
         - 提供安慰和理解
         - 建议放松的方法
         - 帮助分析问题根源
-        
+
         **疲劳时**：
         - 主动提醒休息
         - 建议适当的休息方式
@@ -98,13 +107,13 @@ class FireflyAgent(BaseAgent):
 
         ## capture_screen
         📷 屏幕截图工具，用于截取屏幕内容并获取屏幕信息。
-        
+
         **何时使用截图工具**：
         - 当用户使用指代不明的代词（如"这个"、"那个"、"这里"、"上面"等）时
         - 当用户明确提及屏幕内容（如"屏幕上的"、"界面中的"、"显示的"等）时
         - 当用户询问当前显示的内容或需要基于屏幕内容回答问题时
         - 当用户的问题可能需要视觉上下文才能准确回答时
-        
+
         **使用策略**：
         - 优先使用 `capture_screen()` 进行全屏截图
         - 如需特定区域，可使用 `region` 参数指定区域
@@ -128,7 +137,7 @@ class FireflyAgent(BaseAgent):
 
         **当前时间**: {time}
         **SketchPad状态**: {sketch_pad_summary}
-        
+
         务必需要注意的一点是：以最口语化的方法和用户交流，要像说话一样自然流畅，简洁。
         """
         # 实际的返回值会由装饰器处理
@@ -139,10 +148,10 @@ class FireflyAgent(BaseAgent):
     async def run(self, query: str) -> AsyncGenerator[str, None]:
         """
         运行SimpleAgent处理用户查询
-        
+
         Args:
             query: 用户查询
-            
+
         Returns:
             AsyncGenerator yielding response chunks
         """
@@ -172,4 +181,3 @@ class FireflyAgent(BaseAgent):
 
         # 同步chat函数更新后的历史记录到context
         await self.context.sync_with_external_history(final_history)
-
